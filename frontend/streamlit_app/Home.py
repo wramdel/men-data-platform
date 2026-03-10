@@ -66,6 +66,9 @@ subdireccion = st.Page("pages/06_Subdireccion.py", title="Subdirección", icon="
 conaces = st.Page("pages/07_Gestion_Conaces.py", title="Gestión Conaces", icon="📋")
 normatividad = st.Page("pages/08_Normatividad.py", title="Normatividad", icon="📜")
 
+snies = st.Page("pages/10_SNIES.py", title="SNIES", icon="📊")
+saces = st.Page("pages/11_SACES.py", title="SACES", icon="📋")
+
 gobierno = st.Page("pages/09_00_Gobierno_de_Datos.py", title="Gobierno de Datos", icon="🧭")
 
 # Catálogo, Calidad, Linaje y Metadatos son vistas internas del módulo (no páginas globales).
@@ -81,6 +84,7 @@ pages = {
         conaces,
         normatividad,
     ],
+    "Analítica Institucional": [snies, saces],
     "Capacidades Estratégicas": [gobierno],
 }
 
