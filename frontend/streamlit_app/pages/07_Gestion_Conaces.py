@@ -1,13 +1,16 @@
 """
 Módulo Gestión Conaces: hub con secciones internas (Dashboard, Consultas, Actividades, Reportes, Indicadores).
+
+Se integra Rev. histórica como contenido del Dashboard y Verificación de hojas de vida
+como contenido de la sección Consultas, usando el menú lateral estándar de secciones.
 """
 import streamlit as st
 
+from components.conaces.rev_historica_dashboard import render_rev_historica_dashboard
+from components.conaces.verificacion_hv_workspace import render_verificacion_workspace
 from components.footer import render_footer
 from components.section_placeholders import (
     render_actividades_placeholder,
-    render_consultas_placeholder,
-    render_dashboard_placeholder,
     render_indicadores_placeholder,
     render_reportes_placeholder,
 )
@@ -35,10 +38,13 @@ render_sidebar_misional(
 )
 
 current = st.session_state[SECTION_KEY]
+
 if current == "dashboard":
-    render_dashboard_placeholder(MODULE_ID, MODULE_TITLE)
+    # Dashboard = Rev. histórica
+    render_rev_historica_dashboard()
 elif current == "consultas":
-    render_consultas_placeholder(MODULE_TITLE)
+    # Consultas = Verificación de hojas de vida (workspace funcional)
+    render_verificacion_workspace()
 elif current == "actividades":
     render_actividades_placeholder(MODULE_TITLE)
 elif current == "reportes":

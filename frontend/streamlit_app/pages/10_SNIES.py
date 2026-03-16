@@ -2,6 +2,8 @@
 SNIES: consulta sobre Instituciones y Programas (datos reales desde Excel).
 Secciones: Resumen, Instituciones, Programas, Reportes. Opcional: programas por institución seleccionada.
 """
+from io import BytesIO
+
 import streamlit as st
 
 from components.footer import render_footer
@@ -121,6 +123,34 @@ with tab_resumen:
         {"label": "Instituciones acreditadas alta calidad", "value": stats["instituciones_acreditadas_alta_calidad"], "icon": "⭐"},
     ]
     render_kpi_metrics(metrics, columns_count=5)
+    st.markdown("---")
+    st.markdown("**Descargar tablas en esquema original**")
+    st.caption("Instituciones y Programas tal como vienen del SNIES (todas las columnas, sin filtros).")
+    col_r1, col_r2 = st.columns(2)
+    with col_r1:
+        st.markdown("**Instituciones**")
+        buf_inst_full = BytesIO()
+        df_inst.to_excel(buf_inst_full, index=False, engine="openpyxl")
+        buf_inst_full.seek(0)
+        st.download_button(
+            "Descargar Instituciones (Excel)",
+            data=buf_inst_full.getvalue(),
+            file_name="SNIES_Instituciones_esquema_original.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_resumen_inst",
+        )
+    with col_r2:
+        st.markdown("**Programas**")
+        buf_prog_full = BytesIO()
+        df_prog.to_excel(buf_prog_full, index=False, engine="openpyxl")
+        buf_prog_full.seek(0)
+        st.download_button(
+            "Descargar Programas (Excel)",
+            data=buf_prog_full.getvalue(),
+            file_name="SNIES_Programas_esquema_original.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_resumen_prog",
+        )
 
 with tab_instituciones:
     st.subheader("Instituciones")
@@ -151,6 +181,16 @@ with tab_instituciones:
     if cols_inst_show:
         st.caption(f"Mostrando {len(df_inst_f)} registro(s).")
         st.dataframe(df_inst_f[cols_inst_show], use_container_width=True, height=350)
+        buf_inst = BytesIO()
+        df_inst_f.to_excel(buf_inst, index=False, engine="openpyxl")
+        buf_inst.seek(0)
+        st.download_button(
+            "Descargar tabla Instituciones (Excel)",
+            data=buf_inst.getvalue(),
+            file_name="SNIES_Instituciones.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_instituciones",
+        )
     else:
         st.info("No hay columnas de instituciones disponibles para mostrar.")
 
@@ -187,6 +227,16 @@ with tab_programas:
     if cols_prog_show:
         st.caption(f"Mostrando {len(df_prog_f)} registro(s).")
         st.dataframe(df_prog_f[cols_prog_show], use_container_width=True, height=350)
+        buf_prog = BytesIO()
+        df_prog_f.to_excel(buf_prog, index=False, engine="openpyxl")
+        buf_prog.seek(0)
+        st.download_button(
+            "Descargar tabla Programas (Excel)",
+            data=buf_prog.getvalue(),
+            file_name="SNIES_Programas.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_programas",
+        )
     else:
         st.info("No hay columnas de programas disponibles para mostrar.")
 
