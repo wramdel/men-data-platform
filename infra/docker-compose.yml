@@ -1,0 +1,39 @@
+services:
+
+  postgres:
+    image: postgres:15
+    container_name: men_postgres
+    restart: always
+
+    environment:
+      POSTGRES_USER: men_user
+      POSTGRES_PASSWORD: men_password
+      POSTGRES_DB: men_platform
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: men_pgadmin
+    restart: always
+
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@men.gov.co
+      PGADMIN_DEFAULT_PASSWORD: admin123
+
+    ports:
+      - "8080:80"
+
+    depends_on:
+      - postgres
+
+
+volumes:
+  postgres_data:
