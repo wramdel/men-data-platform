@@ -310,235 +310,183 @@ def _render_open_pdf_button(b64_pdf: str) -> None:
     components.html(open_html, height=90)
 
 
-def _render_pdf_panel() -> None:
-    """
-    Panel derecho de PDF:
-    - visor embebido
-    - botón de descarga
-    - opción para abrir en pestaña nueva (local)
-    """
-    pdf_path, pdf_bytes, b64_pdf, file_size_kb = _get_pdf_demo()
-    if pdf_path is None:
-        st.warning(
-            "No se encontró el archivo de ejemplo `EJEMPLO DE BBDD.pdf` en `data/raw/gconases/`. "
-            "Cuando esté disponible, se mostrará aquí el visor de hoja de vida."
-        )
-        return
-    pdf_display = f'''
-    <iframe
-        src="data:application/pdf;base64,{b64_pdf}"
-        width="100%"
-        height="700px"
-        style="border:none; border-radius: 8px; display:block;"
-        type="application/pdf">
-    </iframe>
-    '''
-    components.html(pdf_display, height=730, scrolling=True)
-
-    st.caption(
-        f"Archivo: `EJEMPLO DE BBDD.pdf` — tamaño aproximado: {file_size_kb:,.1f} KB"
-    )
-
-    # Mensaje informativo y opciones alternativas
-    st.info(
-        "Si el visor embebido es bloqueado por el navegador, use **Descargar PDF** o **Abrir PDF en otra pestaña**."
-    )
-
-    # Botón de descarga directa
-    st.download_button(
-        "Descargar PDF de ejemplo",
-        data=pdf_bytes,
-        file_name="EJEMPLO_DE_BBDD.pdf",
-        mime="application/pdf",
-        key="hv_pdf_download",
-    )
-
-    # Botón de abrir: justo debajo del botón de descarga (panel PDF).
-    if pdf_path is not None and pdf_path.is_file() and b64_pdf:
-        _render_open_pdf_button(b64_pdf)
-
-
 def render_verificacion_workspace() -> None:
     """Vista principal de Verificación de hojas de vida."""
     _inject_workspace_styles()
     st.subheader("Verificación de hojas de vida — Gestión CONACES")
+    st.markdown("### Panel de verificación")
+    doc_col, btn_col = st.columns([1.0, 0.45], gap="medium")
+    with doc_col:
+        doc_in = st.text_input(
+            "Número de cédula / documento",
+            placeholder="Ej: 12345678",
+            key="hv_doc_query",
+        )
+    with btn_col:
+        # Spacer visual para alinear verticalmente el botón con el input (sin afectar lógica).
+        st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
+        buscar = st.button("Buscar", type="primary", key="hv_buscar")
 
-    col_left, col_right = st.columns([1.35, 1.65], gap="large")
+    df_master = _get_master()
+    doc = normalize_document_value(doc_in)
 
-    with col_left:
-        st.markdown("### Panel de verificación")
-        doc_col, btn_col = st.columns([1.0, 0.45], gap="medium")
-        with doc_col:
-            doc_in = st.text_input(
-                "Número de cédula / documento",
-                placeholder="Ej: 12345678",
-                key="hv_doc_query",
-            )
-        with btn_col:
-            # Spacer visual para alinear verticalmente el botón con el input (sin afectar lógica).
-            st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
-            buscar = st.button("Buscar", type="primary", key="hv_buscar")
-
-        df_master = _get_master()
-        doc = normalize_document_value(doc_in)
-
-        if buscar:
-            if not doc:
-                st.warning("Ingrese un documento válido para iniciar la verificación.")
-            elif df_master is None or df_master.empty:
-                st.warning("No hay información histórica disponible para verificación en este momento.")
-            elif "documento" not in df_master.columns:
-                st.warning("La información histórica no contiene la columna `documento`.")
+    if buscar:
+        if not doc:
+            st.warning("Ingrese un documento válido para iniciar la verificación.")
+        elif df_master is None or df_master.empty:
+            st.warning("No hay información histórica disponible para verificación en este momento.")
+        elif "documento" not in df_master.columns:
+            st.warning("La información histórica no contiene la columna `documento`.")
+        else:
+            df_doc = df_master[
+                df_master["documento"].fillna("").astype(str).str.strip() == doc
+            ].copy()
+            if df_doc.empty:
+                st.info("No se encontraron registros históricos para este documento.")
             else:
-                df_doc = df_master[
-                    df_master["documento"].fillna("").astype(str).str.strip() == doc
-                ].copy()
-                if df_doc.empty:
-                    st.info("No se encontraron registros históricos para este documento.")
-                else:
-                    st.success(f"Se encontró al menos un proceso histórico para el documento {doc}.")
-                    cols_show = [
-                        "documento",
-                        "convocatoria",
-                        "sala",
-                        "estado_inscripcion",
-                        "puntaje_fase_3",
-                        "resultado_fase_3",
-                        "puntaje_prueba",
-                        "puntaje_entrevista",
-                        "puntaje_final",
-                        "resultado_final",
-                    ]
-                    cols_show = [c for c in cols_show if c in df_doc.columns]
-                    st.markdown("**Resumen del proceso histórico**")
-                    st.dataframe(df_doc[cols_show].head(5), use_container_width=True, hide_index=True)
+                st.success(f"Se encontró al menos un proceso histórico para el documento {doc}.")
+                cols_show = [
+                    "documento",
+                    "convocatoria",
+                    "sala",
+                    "estado_inscripcion",
+                    "puntaje_fase_3",
+                    "resultado_fase_3",
+                    "puntaje_prueba",
+                    "puntaje_entrevista",
+                    "puntaje_final",
+                    "resultado_final",
+                ]
+                cols_show = [c for c in cols_show if c in df_doc.columns]
+                st.markdown("**Resumen del proceso histórico**")
+                st.dataframe(df_doc[cols_show].head(5), use_container_width=True, hide_index=True)
 
-        st.markdown("### Selección de sala")
-        sala = st.selectbox(
-            "Sala (obligatorio)",
-            options=[""] + SALAS_CONACES,
-            key="hv_sala",
+    st.markdown("### Selección de sala")
+    sala = st.selectbox(
+        "Sala (obligatorio)",
+        options=[""] + SALAS_CONACES,
+        key="hv_sala",
+    )
+
+    # Blindaje UX: aseguramos valores disponibles aun si el expander está colapsado.
+    sop_acad = st.session_state.get("hv_soportes_acad", "Sí")
+    sop_exp = st.session_state.get("hv_soportes_exp", "Sí")
+
+    with st.expander("Validación documental", expanded=False):
+        st.markdown("### Validación documental")
+        doc_pres = st.radio(
+            "Documento de identidad presentado",
+            options=["Sí", "No"],
+            key="hv_doc_presentado",
+            horizontal=True,
+        )
+        sop_acad = st.radio(
+            "Soportes académicos",
+            options=["Sí", "No"],
+            key="hv_soportes_acad",
+            horizontal=True,
+        )
+        sop_exp = st.radio(
+            "Soportes de experiencia",
+            options=["Sí", "No"],
+            key="hv_soportes_exp",
+            horizontal=True,
+        )
+        hv_legible = st.radio(
+            "Hoja de vida legible/completa",
+            options=["Sí", "No"],
+            key="hv_legible",
+            horizontal=True,
         )
 
-        # Blindaje UX: aseguramos valores disponibles aun si el expander está colapsado.
-        sop_acad = st.session_state.get("hv_soportes_acad", "Sí")
-        sop_exp = st.session_state.get("hv_soportes_exp", "Sí")
+    with st.expander("Estudios", expanded=False):
 
-        with st.expander("Validación documental", expanded=False):
-            st.markdown("### Validación documental")
-            doc_pres = st.radio(
-                "Documento de identidad presentado",
-                options=["Sí", "No"],
-                key="hv_doc_presentado",
-                horizontal=True,
-            )
-            sop_acad = st.radio(
-                "Soportes académicos",
-                options=["Sí", "No"],
-                key="hv_soportes_acad",
-                horizontal=True,
-            )
-            sop_exp = st.radio(
-                "Soportes de experiencia",
-                options=["Sí", "No"],
-                key="hv_soportes_exp",
-                horizontal=True,
-            )
-            hv_legible = st.radio(
-                "Hoja de vida legible/completa",
-                options=["Sí", "No"],
-                key="hv_legible",
-                horizontal=True,
-            )
+        st.markdown("### 📘 Estudios")
+        is_educacion = (sala or "").strip().lower() == "educación"
+        c1, c2 = st.columns(2)
+        with c1:
+            # Para Sala Educación: ocultar checkboxes genéricos y mostrar solo validación específica
+            profesional = False
+            maestria = False
+            doctorado = False
+            especialidad_medica = False
+            if not is_educacion:
+                profesional = st.checkbox("Profesional", key="hv_est_profesional")
+                maestria = st.checkbox("Maestría", key="hv_est_maestria")
+                doctorado = st.checkbox("Doctorado", key="hv_est_doctorado")
+                especialidad_medica = st.checkbox("Especialidad médica", key="hv_est_especialidad_medica")
+            titulo_exterior = st.checkbox("Título exterior", key="hv_est_titulo_exterior")
+            convalidado = False
+            if titulo_exterior:
+                convalidado = st.checkbox("Convalidado", key="hv_est_convalidado")
 
-        with st.expander("Estudios", expanded=False):
-
-            st.markdown("### 📘 Estudios")
-            is_educacion = (sala or "").strip().lower() == "educación"
-            c1, c2 = st.columns(2)
-            with c1:
-                # Para Sala Educación: ocultar checkboxes genéricos y mostrar solo validación específica
-                profesional = False
-                maestria = False
-                doctorado = False
-                especialidad_medica = False
-                if not is_educacion:
-                    profesional = st.checkbox("Profesional", key="hv_est_profesional")
-                    maestria = st.checkbox("Maestría", key="hv_est_maestria")
-                    doctorado = st.checkbox("Doctorado", key="hv_est_doctorado")
-                    especialidad_medica = st.checkbox("Especialidad médica", key="hv_est_especialidad_medica")
-                titulo_exterior = st.checkbox("Título exterior", key="hv_est_titulo_exterior")
-                convalidado = False
-                if titulo_exterior:
-                    convalidado = st.checkbox("Convalidado", key="hv_est_convalidado")
-
-                profesional_en_educacion = False
-                posgrado_en_educacion = False
-                if is_educacion:
-                    st.markdown("**Educación — validación específica**")
-                    profesional_en_educacion = st.checkbox(
-                        "Título profesional en el campo de educación",
-                        key="hv_est_prof_en_educacion",
-                    )
-                    posgrado_en_educacion = st.checkbox(
-                        "Posgrado en el campo de educación",
-                        key="hv_est_posgrado_en_educacion",
-                    )
-            with c2:
-                tecnico = st.checkbox("Técnico", key="hv_est_tecnico")
-                tecnologo = st.checkbox("Tecnólogo", key="hv_est_tecnologo")
-                certificados = st.checkbox("Certificados", key="hv_est_certificados")
-                duracion_certificados = st.number_input(
-                    "Duración certificados (años)",
-                    min_value=0.0,
-                    step=0.5,
-                    value=0.0,
-                    key="hv_est_duracion_certificados",
+            profesional_en_educacion = False
+            posgrado_en_educacion = False
+            if is_educacion:
+                st.markdown("**Educación — validación específica**")
+                profesional_en_educacion = st.checkbox(
+                    "Título profesional en el campo de educación",
+                    key="hv_est_prof_en_educacion",
                 )
+                posgrado_en_educacion = st.checkbox(
+                    "Posgrado en el campo de educación",
+                    key="hv_est_posgrado_en_educacion",
+                )
+        with c2:
+            tecnico = st.checkbox("Técnico", key="hv_est_tecnico")
+            tecnologo = st.checkbox("Tecnólogo", key="hv_est_tecnologo")
+            certificados = st.checkbox("Certificados", key="hv_est_certificados")
+            duracion_certificados = st.number_input(
+                "Duración certificados (años)",
+                min_value=0.0,
+                step=0.5,
+                value=0.0,
+                key="hv_est_duracion_certificados",
+            )
 
-            estudios_data = {
-                "profesional": profesional,
-                "maestria": maestria,
-                "doctorado": doctorado,
-                "especialidad_medica": especialidad_medica,
-                "tecnico": tecnico,
-                "tecnologo": tecnologo,
-                "certificados": certificados,
-                "duracion_certificados": duracion_certificados,
-                "titulo_exterior": titulo_exterior,
-                "convalidado": convalidado,
-                "profesional_en_educacion": profesional_en_educacion,
-                "posgrado_en_educacion": posgrado_en_educacion,
-            }
+        estudios_data = {
+            "profesional": profesional,
+            "maestria": maestria,
+            "doctorado": doctorado,
+            "especialidad_medica": especialidad_medica,
+            "tecnico": tecnico,
+            "tecnologo": tecnologo,
+            "certificados": certificados,
+            "duracion_certificados": duracion_certificados,
+            "titulo_exterior": titulo_exterior,
+            "convalidado": convalidado,
+            "profesional_en_educacion": profesional_en_educacion,
+            "posgrado_en_educacion": posgrado_en_educacion,
+        }
 
-            # UX: no evaluar hasta seleccionar sala
-            cumple_estudios = False
-            msg_estudios = ""
-            estado_estudios = "—"
+        # UX: no evaluar hasta seleccionar sala
+        cumple_estudios = False
+        msg_estudios = ""
+        estado_estudios = "—"
 
-            if not sala:
-                st.warning("Seleccione una sala para validar estudios.")
+        if not sala:
+            st.warning("Seleccione una sala para validar estudios.")
+        else:
+            cumple_estudios, msg_estudios = validar_estudios(sala, estudios_data)
+
+            if not cumple_estudios:
+                estado_estudios = "No cumple ❌"
+                st.error(f"**Estudios:** No cumple. {msg_estudios}")
             else:
-                cumple_estudios, msg_estudios = validar_estudios(sala, estudios_data)
-
-                if not cumple_estudios:
-                    estado_estudios = "No cumple ❌"
-                    st.error(f"**Estudios:** No cumple. {msg_estudios}")
+                # Cumple académico, pero en operación requiere soportes documentales
+                if sop_acad == "No":
+                    estado_estudios = "Requiere soporte documental ⚠️"
+                    st.warning(
+                        f"**Estudios:** Cumple requisitos académicos, pero falta soporte académico documental. {msg_estudios}"
+                    )
                 else:
-                    # Cumple académico, pero en operación requiere soportes documentales
-                    if sop_acad == "No":
-                        estado_estudios = "Requiere soporte documental ⚠️"
-                        st.warning(
-                            f"**Estudios:** Cumple requisitos académicos, pero falta soporte académico documental. {msg_estudios}"
-                        )
-                    else:
-                        estado_estudios = "Cumple ✅"
-                        st.success(f"**Estudios:** Cumple. {msg_estudios}")
+                    estado_estudios = "Cumple ✅"
+                    st.success(f"**Estudios:** Cumple. {msg_estudios}")
 
-                if (sala or "").strip().lower() == "educación":
-                    st.caption("Para esta sala solo se consideran títulos en el campo de educación.")
+            if (sala or "").strip().lower() == "educación":
+                st.caption("Para esta sala solo se consideran títulos en el campo de educación.")
 
-        with st.expander("Experiencia", expanded=True):
+    with st.expander("Experiencia", expanded=True):
             st.markdown("### 🧑‍🏫 Experiencia")
 
             # UX: no evaluar hasta seleccionar sala
@@ -788,152 +736,150 @@ def render_verificacion_workspace() -> None:
                         estado_experiencia = "Cumple ✅"
                         st.success(f"**Experiencia:** Cumple. {msg_experiencia}")
 
-        estado_investigacion = "—"
+    estado_investigacion = "—"
 
-        with st.expander("Investigación", expanded=False):
-            sala_norm = (sala or "").strip().lower()
-            st.markdown("### 🔬 Investigación")
+    with st.expander("Investigación", expanded=False):
+        sala_norm = (sala or "").strip().lower()
+        st.markdown("### 🔬 Investigación")
 
-            if sala_norm in ("trámites institucionales", "tramites institucionales"):
-                estado, msg_investigacion = validar_investigacion(sala, {})
-                estado_investigacion = "No aplica ℹ️" if estado == "no_aplica" else "No cumple ❌"
-                st.info("Para esta sala el requisito de investigación no aplica.")
-            else:
-                # Inputs compactos para salas generales
-                productos_investigacion = st.checkbox("Productos de investigación (verificables)", key="hv_inv_productos_investigacion")
-                grupo_reconocido = st.checkbox("Grupo reconocido / clasificado", key="hv_inv_grupo_reconocido")
-                categoria_investigador = st.selectbox(
-                    "Categoría de investigador",
-                    options=["", "Junior", "Asociado", "Senior"],
-                    key="hv_inv_categoria_investigador",
+        if sala_norm in ("trámites institucionales", "tramites institucionales"):
+            estado, msg_investigacion = validar_investigacion(sala, {})
+            estado_investigacion = "No aplica ℹ️" if estado == "no_aplica" else "No cumple ❌"
+            st.info("Para esta sala el requisito de investigación no aplica.")
+        else:
+            # Inputs compactos para salas generales
+            productos_investigacion = st.checkbox("Productos de investigación (verificables)", key="hv_inv_productos_investigacion")
+            grupo_reconocido = st.checkbox("Grupo reconocido / clasificado", key="hv_inv_grupo_reconocido")
+            categoria_investigador = st.selectbox(
+                "Categoría de investigador",
+                options=["", "Junior", "Asociado", "Senior"],
+                key="hv_inv_categoria_investigador",
+            )
+
+            investigacion_data = {
+                "productos_investigacion": productos_investigacion,
+                "grupo_reconocido": grupo_reconocido,
+                "categoria_investigador": categoria_investigador,
+            }
+
+            # Regla especial para Técnicos Profesionales y Tecnológicos (homologación)
+            sala_es_tecnicos = sala_norm == "técnicos profesionales y tecnológicos"
+            if sala_es_tecnicos:
+                st.caption(
+                    "Para esta sala, el requisito de investigación puede homologarse con experiencia técnica o de innovación."
+                )
+                anios_conceptos_tecnicos = st.number_input(
+                    "Años en elaboración de conceptos técnicos y tecnológicos",
+                    min_value=0.0,
+                    step=0.5,
+                    value=0.0,
+                    key="hv_inv_anios_conceptos_tecnicos",
+                )
+                anios_prototipos_industriales = st.number_input(
+                    "Años en elaboración de prototipos industriales",
+                    min_value=0.0,
+                    step=0.5,
+                    value=0.0,
+                    key="hv_inv_anios_prototipos_industriales",
+                )
+                anios_innovacion_productos_servicios = st.number_input(
+                    "Años en innovación de productos y servicios",
+                    min_value=0.0,
+                    step=0.5,
+                    value=0.0,
+                    key="hv_inv_anios_innovacion_productos_servicios",
                 )
 
-                investigacion_data = {
-                    "productos_investigacion": productos_investigacion,
-                    "grupo_reconocido": grupo_reconocido,
-                    "categoria_investigador": categoria_investigador,
-                }
+                investigacion_data.update(
+                    {
+                        "anios_conceptos_tecnicos": anios_conceptos_tecnicos,
+                        "anios_prototipos_industriales": anios_prototipos_industriales,
+                        "anios_innovacion_productos_servicios": anios_innovacion_productos_servicios,
+                    }
+                )
 
-                # Regla especial para Técnicos Profesionales y Tecnológicos (homologación)
-                sala_es_tecnicos = sala_norm == "técnicos profesionales y tecnológicos"
-                if sala_es_tecnicos:
-                    st.caption(
-                        "Para esta sala, el requisito de investigación puede homologarse con experiencia técnica o de innovación."
-                    )
-                    anios_conceptos_tecnicos = st.number_input(
-                        "Años en elaboración de conceptos técnicos y tecnológicos",
-                        min_value=0.0,
-                        step=0.5,
-                        value=0.0,
-                        key="hv_inv_anios_conceptos_tecnicos",
-                    )
-                    anios_prototipos_industriales = st.number_input(
-                        "Años en elaboración de prototipos industriales",
-                        min_value=0.0,
-                        step=0.5,
-                        value=0.0,
-                        key="hv_inv_anios_prototipos_industriales",
-                    )
-                    anios_innovacion_productos_servicios = st.number_input(
-                        "Años en innovación de productos y servicios",
-                        min_value=0.0,
-                        step=0.5,
-                        value=0.0,
-                        key="hv_inv_anios_innovacion_productos_servicios",
-                    )
-
-                    investigacion_data.update(
-                        {
-                            "anios_conceptos_tecnicos": anios_conceptos_tecnicos,
-                            "anios_prototipos_industriales": anios_prototipos_industriales,
-                            "anios_innovacion_productos_servicios": anios_innovacion_productos_servicios,
-                        }
-                    )
-
-                condiciones = [
-                    productos_investigacion,
-                    grupo_reconocido,
-                    categoria_investigador in ["Junior", "Asociado", "Senior"],
-                ]
-                if any(condiciones):
-                    st.success("Condición de investigación verificada")
-                else:
-                    st.caption("No se verifica ninguna condición")
-
-                n_condiciones = sum(condiciones)
-                if sala_es_tecnicos:
-                    st.markdown(f"**Condiciones generales verificadas:** {n_condiciones} de 3")
-
-                    homologacion_tecnica = (
-                        anios_conceptos_tecnicos >= 5
-                        or anios_prototipos_industriales >= 5
-                        or anios_innovacion_productos_servicios >= 5
-                    )
-                    if homologacion_tecnica:
-                        st.success("Homologación técnica: Cumple")
-                    else:
-                        st.caption("Homologación técnica: No cumple")
-                else:
-                    st.markdown(f"**Condiciones verificadas:** {n_condiciones} de 3")
-
-                estado, msg_investigacion = validar_investigacion(sala, investigacion_data)
-
-                if estado == "cumple":
-                    estado_investigacion = "Cumple ✅"
-                    st.success(f"Cumple. {msg_investigacion}")
-                elif estado == "no_cumple":
-                    estado_investigacion = "No cumple ❌"
-                    st.error(f"No cumple. {msg_investigacion}")
-                else:
-                    estado_investigacion = "No aplica ℹ️"
-                    st.info("Para esta sala el requisito de investigación no aplica.")
-
-        with st.expander("Observaciones y resultado preliminar", expanded=False):
-            st.markdown("### Observaciones")
-            obs = st.text_area("Observaciones del evaluador", key="hv_observaciones", height=120)
-
-            st.markdown("### Resultado preliminar")
-            st.markdown(f"**Estado de Estudios (automático):** {estado_estudios}")
-            st.markdown(f"**Estado de Experiencia (automático):** {estado_experiencia}")
-            st.markdown(f"**Estado de Investigación (automático):** {estado_investigacion}")
-            st.caption("Nota: el resultado preliminar incluye Investigación.")
-            concepto = st.selectbox(
-                "Concepto preliminar",
-                options=["", "Cumple", "No cumple", "Requiere revisión"],
-                key="hv_concepto",
-            )
-
-            # Botón de guardar (sin persistencia todavía, solo placeholder de flujo)
-            st.button("Registrar verificación (no persiste aún)", key="hv_guardar")
-
-            no_cumple_flag = any(
-                s.startswith("No cumple") for s in [estado_estudios, estado_experiencia, estado_investigacion]
-            )
-            requiere_revision_flag = any(
-                "Requiere soporte documental" in s for s in [estado_estudios, estado_experiencia]
-            )
-            all_cumple_or_no_aplica = all(
-                (s.startswith("Cumple") or s.startswith("No aplica")) for s in [estado_estudios, estado_experiencia, estado_investigacion]
-            )
-
-            if no_cumple_flag:
-                estado_global = "No cumple ❌"
-            elif requiere_revision_flag:
-                estado_global = "Requiere revisión ⚠️"
-            elif all_cumple_or_no_aplica:
-                estado_global = "Cumple ✅"
+            condiciones = [
+                productos_investigacion,
+                grupo_reconocido,
+                categoria_investigador in ["Junior", "Asociado", "Senior"],
+            ]
+            if any(condiciones):
+                st.success("Condición de investigación verificada")
             else:
-                # Estados intermedios (p.ej. "—") se consideran pendientes de revisión.
-                estado_global = "Requiere revisión ⚠️"
+                st.caption("No se verifica ninguna condición")
 
-            st.markdown("## 🧾 Resultado final sugerido")
-            if estado_global.startswith("Cumple"):
-                st.success(estado_global)
-            elif estado_global.startswith("Requiere revisión"):
-                st.warning(estado_global)
+            n_condiciones = sum(condiciones)
+            if sala_es_tecnicos:
+                st.markdown(f"**Condiciones generales verificadas:** {n_condiciones} de 3")
+
+                homologacion_tecnica = (
+                    anios_conceptos_tecnicos >= 5
+                    or anios_prototipos_industriales >= 5
+                    or anios_innovacion_productos_servicios >= 5
+                )
+                if homologacion_tecnica:
+                    st.success("Homologación técnica: Cumple")
+                else:
+                    st.caption("Homologación técnica: No cumple")
             else:
-                st.error(estado_global)
+                st.markdown(f"**Condiciones verificadas:** {n_condiciones} de 3")
 
-    with col_right:
-        _render_pdf_panel()
+            estado, msg_investigacion = validar_investigacion(sala, investigacion_data)
+
+            if estado == "cumple":
+                estado_investigacion = "Cumple ✅"
+                st.success(f"Cumple. {msg_investigacion}")
+            elif estado == "no_cumple":
+                estado_investigacion = "No cumple ❌"
+                st.error(f"No cumple. {msg_investigacion}")
+            else:
+                estado_investigacion = "No aplica ℹ️"
+                st.info("Para esta sala el requisito de investigación no aplica.")
+
+    with st.expander("Observaciones y resultado preliminar", expanded=False):
+        st.markdown("### Observaciones")
+        obs = st.text_area("Observaciones del evaluador", key="hv_observaciones", height=120)
+
+        st.markdown("### Resultado preliminar")
+        st.markdown(f"**Estado de Estudios (automático):** {estado_estudios}")
+        st.markdown(f"**Estado de Experiencia (automático):** {estado_experiencia}")
+        st.markdown(f"**Estado de Investigación (automático):** {estado_investigacion}")
+        st.caption("Nota: el resultado preliminar incluye Investigación.")
+        concepto = st.selectbox(
+            "Concepto preliminar",
+            options=["", "Cumple", "No cumple", "Requiere revisión"],
+            key="hv_concepto",
+        )
+
+        # Botón de guardar (sin persistencia todavía, solo placeholder de flujo)
+        st.button("Registrar verificación (no persiste aún)", key="hv_guardar")
+
+        no_cumple_flag = any(
+            s.startswith("No cumple") for s in [estado_estudios, estado_experiencia, estado_investigacion]
+        )
+        requiere_revision_flag = any(
+            "Requiere soporte documental" in s for s in [estado_estudios, estado_experiencia]
+        )
+        all_cumple_or_no_aplica = all(
+            (s.startswith("Cumple") or s.startswith("No aplica")) for s in [estado_estudios, estado_experiencia, estado_investigacion]
+        )
+
+        if no_cumple_flag:
+            estado_global = "No cumple ❌"
+        elif requiere_revision_flag:
+            estado_global = "Requiere revisión ⚠️"
+        elif all_cumple_or_no_aplica:
+            estado_global = "Cumple ✅"
+        else:
+            # Estados intermedios (p.ej. "—") se consideran pendientes de revisión.
+            estado_global = "Requiere revisión ⚠️"
+
+        st.markdown("## 🧾 Resultado final sugerido")
+        if estado_global.startswith("Cumple"):
+            st.success(estado_global)
+        elif estado_global.startswith("Requiere revisión"):
+            st.warning(estado_global)
+        else:
+            st.error(estado_global)
+
 
