@@ -3,6 +3,8 @@ Servicio de datos SNIES: carga de Excel Instituciones y Programas, filtros y KPI
 No modifica archivos; solo lectura y transformación en memoria.
 """
 from pathlib import Path
+from functools import lru_cache
+import unicodedata
 
 import pandas as pd
 
@@ -71,6 +73,169 @@ def load_programas() -> pd.DataFrame:
         if df[col].dtype == "object":
             df[col] = df[col].astype(str).replace("nan", "").str.strip()
     return df
+
+
+def _norm_key(value: str) -> str:
+    """Normaliza texto para comparar nombres de columnas de forma robusta."""
+    if not isinstance(value, str):
+        value = str(value)
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return value.strip().upper().replace(" ", "_")
+
+
+def _pick_col(df: pd.DataFrame, expected: str) -> str | None:
+    """Busca una columna esperada con tolerancia a tildes/espacios."""
+    target = _norm_key(expected)
+    for col in df.columns:
+        if _norm_key(col) == target:
+            return col
+    return None
+
+
+@lru_cache(maxsize=1)
+def _cached_snies_programas() -> pd.DataFrame:
+    """Carga cacheada de Programas.xlsx para selección asistida."""
+    df = load_programas()
+    if df.empty:
+        return df
+    # Limpieza mínima para la fase de exploración guiada.
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].fillna("").astype(str).str.strip()
+    return df
+
+
+def load_snies_programas() -> pd.DataFrame:
+    """Carga Programas.xlsx, limpia columnas mínimas y devuelve DataFrame cacheado."""
+    return _cached_snies_programas().copy()
+
+
+def get_snies_instituciones() -> list[str]:
+    """Lista única y ordenada de instituciones SNIES."""
+    df = load_snies_programas()
+    if df.empty:
+        return []
+    col_inst = _pick_col(df, "NOMBRE_INSTITUCIÓN")
+    if not col_inst:
+        return []
+    instituciones = (
+        df[col_inst]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    instituciones = instituciones[instituciones != ""]
+    return sorted(instituciones.unique().tolist())
+
+
+def map_nivel_ui_to_snies(nivel_ui: str) -> list[str]:
+    """Mapea nivel de UI a posibles valores SNIES de NIVEL_DE_FORMACIÓN."""
+    nivel = (nivel_ui or "").strip().lower()
+    mapping = {
+        # Valores observados en la base SNIES del proyecto (+ variantes comunes)
+        "profesional": [
+            "UNIVERSITARIO",
+            "UNIVERSITARIA",
+            "PROFESIONAL UNIVERSITARIO",
+            "PROFESIONAL",
+        ],
+        "especialización": [
+            "ESPECIALIZACIÓN UNIVERSITARIA",
+            "ESPECIALIZACION UNIVERSITARIA",
+            "ESPECIALIZACIÓN MÉDICO QUIRÚRGICA",
+            "ESPECIALIZACION MEDICO QUIRURGICA",
+            "ESPECIALIZACIÓN TECNOLÓGICA",
+            "ESPECIALIZACION TECNOLOGICA",
+            "ESPECIALIZACIÓN TÉCNICO PROFESIONAL",
+            "ESPECIALIZACION TECNICO PROFESIONAL",
+            "ESPECIALIZACIÓN",
+            "ESPECIALIZACION",
+        ],
+        "maestría": ["MAESTRÍA", "MAESTRIA"],
+        "doctorado": ["DOCTORADO"],
+        "técnico": [
+            "FORMACIÓN TÉCNICA PROFESIONAL",
+            "FORMACION TECNICA PROFESIONAL",
+            "TÉCNICO PROFESIONAL",
+            "TECNICO PROFESIONAL",
+            "TÉCNICA PROFESIONAL",
+            "TECNICA PROFESIONAL",
+        ],
+        "tecnólogo": [
+            "TECNOLÓGICO",
+            "TECNOLOGICO",
+            "TECNOLÓGICA",
+            "TECNOLOGICA",
+            "TECNOLOGÍA",
+            "TECNOLOGIA",
+        ],
+    }
+    return mapping.get(nivel, [])
+
+
+def get_titulos_por_institucion_y_nivel(institucion: str, nivel_ui: str) -> list[str]:
+    """Filtra por institución + nivel y devuelve títulos otorgados únicos/ordenados."""
+    df = load_snies_programas()
+    if df.empty:
+        return []
+
+    col_inst = _pick_col(df, "NOMBRE_INSTITUCIÓN")
+    col_titulo = _pick_col(df, "TITULO_OTORGADO")
+    col_nivel_form = _pick_col(df, "NIVEL_DE_FORMACIÓN")
+    if not col_inst or not col_titulo or not col_nivel_form:
+        return []
+
+    inst = (institucion or "").strip()
+    if not inst:
+        return []
+
+    niveles_posibles = [n.upper().strip() for n in map_nivel_ui_to_snies(nivel_ui)]
+    if not niveles_posibles:
+        return []
+
+    f_inst = df[col_inst].fillna("").astype(str).str.strip() == inst
+    f_nivel = df[col_nivel_form].fillna("").astype(str).str.upper().str.strip().isin(niveles_posibles)
+    out = df.loc[f_inst & f_nivel, col_titulo].fillna("").astype(str).str.strip()
+    out = out[out != ""]
+    return sorted(out.unique().tolist())
+
+
+def get_programa_detalle(institucion: str, nivel_ui: str, titulo_otorgado: str) -> dict | None:
+    """Devuelve detalle del programa seleccionado o None si no hay coincidencia."""
+    df = load_snies_programas()
+    if df.empty:
+        return None
+
+    col_inst = _pick_col(df, "NOMBRE_INSTITUCIÓN")
+    col_titulo = _pick_col(df, "TITULO_OTORGADO")
+    col_campo = _pick_col(df, "CINE_F_2013_AC_CAMPO_AMPLIO")
+    col_nivel_acad = _pick_col(df, "NIVEL_ACADÉMICO")
+    col_nivel_form = _pick_col(df, "NIVEL_DE_FORMACIÓN")
+    if not col_inst or not col_titulo or not col_campo or not col_nivel_acad or not col_nivel_form:
+        return None
+
+    inst = (institucion or "").strip()
+    titulo = (titulo_otorgado or "").strip()
+    niveles_posibles = [n.upper().strip() for n in map_nivel_ui_to_snies(nivel_ui)]
+    if not inst or not titulo or not niveles_posibles:
+        return None
+
+    f_inst = df[col_inst].fillna("").astype(str).str.strip() == inst
+    f_titulo = df[col_titulo].fillna("").astype(str).str.strip() == titulo
+    f_nivel = df[col_nivel_form].fillna("").astype(str).str.upper().str.strip().isin(niveles_posibles)
+    subset = df.loc[f_inst & f_titulo & f_nivel]
+    if subset.empty:
+        return None
+
+    row = subset.iloc[0]
+    return {
+        "nombre_institucion": str(row.get(col_inst, "")).strip(),
+        "titulo_otorgado": str(row.get(col_titulo, "")).strip(),
+        "campo_amplio": str(row.get(col_campo, "")).strip(),
+        "nivel_academico": str(row.get(col_nivel_acad, "")).strip(),
+        "nivel_formacion": str(row.get(col_nivel_form, "")).strip(),
+    }
 
 
 def get_summary_stats(

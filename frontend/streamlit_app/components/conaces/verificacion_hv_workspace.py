@@ -16,6 +16,14 @@ from services.conaces_history_service import (
     build_master_conaces,
     normalize_document_value,
 )
+from services.estudios_rules import validar_estudios
+from services.experiencia_rules import validar_experiencia
+from services.investigacion_rules import validar_investigacion
+from services.snies_service import (
+    get_programa_detalle,
+    get_snies_instituciones,
+    get_titulos_por_institucion_y_nivel,
+)
 
 SALAS_CONACES = [
     "Educación",
@@ -80,184 +88,6 @@ def _inject_workspace_styles() -> None:
         """,
         unsafe_allow_html=True,
     )
-
-
-def validar_estudios(sala: str, data: dict) -> Tuple[bool, str]:
-    """
-    Valida el bloque de Estudios según reglas normativas por sala.
-
-    Retorna: (cumple, mensaje explicativo)
-    """
-    sala_norm = (sala or "").strip().upper()
-
-    titulo_exterior = bool(data.get("titulo_exterior"))
-    convalidado = bool(data.get("convalidado"))
-    if titulo_exterior and not convalidado:
-        return False, "No cumple: título del exterior sin convalidación."
-
-    profesional = bool(data.get("profesional"))
-    maestria = bool(data.get("maestria"))
-    doctorado = bool(data.get("doctorado"))
-    especialidad_medica = bool(data.get("especialidad_medica"))
-    tecnico = bool(data.get("tecnico"))
-    tecnologo = bool(data.get("tecnologo"))
-    certificados = bool(data.get("certificados"))
-    duracion_certificados = float(data.get("duracion_certificados") or 0)
-    profesional_en_educacion = bool(data.get("profesional_en_educacion"))
-    posgrado_en_educacion = bool(data.get("posgrado_en_educacion"))
-
-    has_posgrado = maestria or doctorado
-
-    # SALA EDUCACIÓN
-    if sala_norm in ("EDUCACIÓN", "EDUCACION"):
-        ok = profesional_en_educacion and posgrado_en_educacion
-        return (
-            ok,
-            "Cumple: título profesional y posgrado en el campo de educación."
-            if ok
-            else "No cumple: requiere título profesional y posgrado en el campo de educación.",
-        )
-
-    # SALA SALUD Y BIENESTAR
-    if sala_norm == "SALUD Y BIENESTAR":
-        ok = profesional and (has_posgrado or especialidad_medica)
-        return (
-            ok,
-            "Cumple: profesional y (maestría, doctorado o especialidad médica)."
-            if ok
-            else "No cumple: requiere profesional y (maestría, doctorado o especialidad médica).",
-        )
-
-    # SALA TÉCNICOS Y TECNOLÓGICOS
-    if sala_norm in ("TÉCNICOS PROFESIONALES Y TECNOLÓGICOS", "TECNICOS PROFESIONALES Y TECNOLOGICOS"):
-        ok = (tecnico or tecnologo) and (has_posgrado or (certificados and duracion_certificados >= 5))
-        return (
-            ok,
-            "Cumple: (técnico o tecnólogo) y (maestría/doctorado o certificados >= 5 años)."
-            if ok
-            else "No cumple: requiere (técnico o tecnólogo) y (maestría/doctorado o certificados >= 5 años).",
-        )
-
-    # TODAS LAS DEMÁS SALAS
-    ok = profesional and has_posgrado
-    return (
-        ok,
-        "Cumple: profesional y (maestría o doctorado)." if ok else "No cumple: requiere profesional y (maestría o doctorado).",
-    )
-
-
-def validar_experiencia(sala: str, data: dict) -> Tuple[bool, str, List[str]]:
-    """
-    Valida Experiencia por rutas/condiciones.
-
-    Retorna: (cumple, mensaje_resumen, rutas_cumplidas)
-    """
-    sala_norm = (sala or "").strip().lower()
-
-    # Fuente de verdad: rutas calculadas en la UI (r1..r7 o ti1..ti3)
-    if sala_norm in ("trámites institucionales", "tramites institucionales"):
-        ti1 = bool(data.get("ti1"))
-        ti2 = bool(data.get("ti2"))
-        ti3 = bool(data.get("ti3"))
-        rutas = []
-        if ti1:
-            rutas.append("Ruta TI-1")
-        if ti2:
-            rutas.append("Ruta TI-2")
-        if ti3:
-            rutas.append("Ruta TI-3")
-        cumple = len(rutas) >= 1
-        msg = (
-            "Cumple regla TI (al menos una condición verificada)."
-            if cumple
-            else "No cumple regla TI: no se verifican condiciones suficientes."
-        )
-        return cumple, msg, rutas
-
-    r1 = bool(data.get("r1"))
-    r2 = bool(data.get("r2"))
-    r3 = bool(data.get("r3"))
-    r4 = bool(data.get("r4"))
-    r5 = bool(data.get("r5"))
-    r6 = bool(data.get("r6"))
-    r7 = bool(data.get("r7"))
-    rutas = []
-    for idx, ok in enumerate([r1, r2, r3, r4, r5, r6, r7], start=1):
-        if ok:
-            rutas.append(f"Ruta {idx}")
-
-    cumple = len(rutas) >= 2
-    msg = (
-        f"Cumple: {len(rutas)} rutas verificadas (mínimo 2)."
-        if cumple
-        else f"No cumple: {len(rutas)} rutas verificadas (mínimo 2)."
-    )
-    return cumple, msg, rutas
-
-
-def validar_investigacion(sala: str, data: dict) -> Tuple[str, str]:
-    """
-    Valida el bloque de Investigación según reglas claras por sala.
-
-    Retorna:
-      - estado: uno de ["cumple", "no_cumple", "no_aplica"]
-      - mensaje explicativo
-    """
-    sala_norm = (sala or "").strip().lower()
-
-    # Regla especial: Trámites Institucionales => no aplica
-    if sala_norm in ("trámites institucionales", "tramites institucionales"):
-        return (
-            "no_aplica",
-            "Para la Sala de Trámites Institucionales el requisito de investigación no aplica.",
-        )
-
-    productos_investigacion = bool(data.get("productos_investigacion"))
-    grupo_reconocido = bool(data.get("grupo_reconocido"))
-    categoria_investigador = (data.get("categoria_investigador") or "").strip()
-
-    categoria_ok = categoria_investigador in {"Junior", "Asociado", "Senior"}
-
-    # Regla general para salas distintas a Trámites
-    cumple_general = productos_investigacion or grupo_reconocido or categoria_ok
-    if not cumple_general:
-        msg_general = (
-            "No cumple: se requiere al menos una de las siguientes condiciones: "
-            "productos de investigación verificables, grupo reconocido o categoría de investigador "
-            "(Junior, Asociado o Senior)."
-        )
-    else:
-        msg_general = "Cumple investigación con al menos una condición verificada."
-
-    # Regla especial: Técnicos Profesionales y Tecnológicos => homologación adicional
-    sala_norm_tecnicos = "técnicos profesionales y tecnológicos"
-    if sala_norm == sala_norm_tecnicos:
-        anios_conceptos_tecnicos = float(data.get("anios_conceptos_tecnicos") or 0.0)
-        anios_prototipos_industriales = float(data.get("anios_prototipos_industriales") or 0.0)
-        anios_innovacion_productos_servicios = float(data.get("anios_innovacion_productos_servicios") or 0.0)
-
-        cumple_homologacion = (
-            anios_conceptos_tecnicos >= 5
-            or anios_prototipos_industriales >= 5
-            or anios_innovacion_productos_servicios >= 5
-        )
-
-        if cumple_general or cumple_homologacion:
-            return (
-                "cumple",
-                "Cumple investigación: satisface regla general y/o homologación (≥ 5 años en conceptos, prototipos o innovación).",
-            )
-
-        return (
-            "no_cumple",
-            msg_general
-            + " Además, para esta sala puede homologarse con 5 años o más en conceptos técnicos, prototipos industriales o innovación.",
-        )
-
-    # Salas generales
-    if cumple_general:
-        return "cumple", msg_general
-    return "no_cumple", msg_general
 
 
 @st.cache_data(ttl=300)
@@ -403,6 +233,53 @@ def render_verificacion_workspace() -> None:
 
         st.markdown("### 📘 Estudios")
         is_educacion = (sala or "").strip().lower() == "educación"
+        instituciones_snies = get_snies_instituciones()
+
+        def _render_snies_selector_componente(
+            enabled: bool,
+            nivel_ui: str,
+            key_suffix: str,
+            *,
+            inst_widget_key: str | None = None,
+            titulo_widget_key: str | None = None,
+            campo_amplio_state_key: str | None = None,
+        ) -> None:
+            """Renderiza selección SNIES simple para un componente de estudios."""
+            inst_key = inst_widget_key or f"hv_snies_inst_{key_suffix}"
+            tit_key = titulo_widget_key or f"hv_snies_titulo_{key_suffix}"
+
+            if not enabled:
+                for k in (inst_key, tit_key, campo_amplio_state_key):
+                    if k and k in st.session_state:
+                        del st.session_state[k]
+                return
+
+            institucion_sel = st.selectbox(
+                "Institución",
+                options=[""] + instituciones_snies,
+                key=inst_key,
+            )
+            titulos = get_titulos_por_institucion_y_nivel(institucion_sel, nivel_ui) if institucion_sel else []
+            titulo_sel = st.selectbox(
+                "Título",
+                options=[""] + titulos,
+                key=tit_key,
+            )
+
+            if campo_amplio_state_key:
+                st.session_state[campo_amplio_state_key] = ""
+
+            if institucion_sel and titulo_sel:
+                detalle = get_programa_detalle(institucion_sel, nivel_ui, titulo_sel)
+                if detalle:
+                    st.success(f"Campo amplio: {detalle.get('campo_amplio', '')}")
+                    st.caption(f"Nivel académico: {detalle.get('nivel_academico', '')}")
+                    st.caption(f"Nivel de formación: {detalle.get('nivel_formacion', '')}")
+                    if campo_amplio_state_key:
+                        st.session_state[campo_amplio_state_key] = str(
+                            detalle.get("campo_amplio", "") or ""
+                        ).strip()
+
         c1, c2 = st.columns(2)
         with c1:
             # Para Sala Educación: ocultar checkboxes genéricos y mostrar solo validación específica
@@ -412,15 +289,21 @@ def render_verificacion_workspace() -> None:
             especialidad_medica = False
             if not is_educacion:
                 profesional = st.checkbox("Profesional", key="hv_est_profesional")
+                _render_snies_selector_componente(profesional, "Profesional", "profesional")
                 maestria = st.checkbox("Maestría", key="hv_est_maestria")
+                _render_snies_selector_componente(maestria, "Maestría", "maestria")
                 doctorado = st.checkbox("Doctorado", key="hv_est_doctorado")
+                _render_snies_selector_componente(doctorado, "Doctorado", "doctorado")
                 especialidad_medica = st.checkbox("Especialidad médica", key="hv_est_especialidad_medica")
+                _render_snies_selector_componente(especialidad_medica, "Especialización", "especializacion")
             titulo_exterior = st.checkbox("Título exterior", key="hv_est_titulo_exterior")
             convalidado = False
             if titulo_exterior:
                 convalidado = st.checkbox("Convalidado", key="hv_est_convalidado")
 
             profesional_en_educacion = False
+            maestria_en_educacion = False
+            doctorado_en_educacion = False
             posgrado_en_educacion = False
             if is_educacion:
                 st.markdown("**Educación — validación específica**")
@@ -428,13 +311,44 @@ def render_verificacion_workspace() -> None:
                     "Título profesional en el campo de educación",
                     key="hv_est_prof_en_educacion",
                 )
-                posgrado_en_educacion = st.checkbox(
-                    "Posgrado en el campo de educación",
-                    key="hv_est_posgrado_en_educacion",
+                _render_snies_selector_componente(
+                    profesional_en_educacion,
+                    "Profesional",
+                    "profesional_educacion",
+                    inst_widget_key="institucion_profesional",
+                    titulo_widget_key="titulo_profesional",
+                    campo_amplio_state_key="campo_amplio_profesional",
                 )
+                maestria_en_educacion = st.checkbox(
+                    "Maestría en el campo de educación",
+                    key="hv_est_maestria_educacion",
+                )
+                _render_snies_selector_componente(
+                    maestria_en_educacion,
+                    "Maestría",
+                    "maestria_educacion",
+                    inst_widget_key="institucion_maestria",
+                    titulo_widget_key="titulo_maestria",
+                    campo_amplio_state_key="campo_amplio_maestria",
+                )
+                doctorado_en_educacion = st.checkbox(
+                    "Doctorado en el campo de educación",
+                    key="hv_est_doctorado_educacion",
+                )
+                _render_snies_selector_componente(
+                    doctorado_en_educacion,
+                    "Doctorado",
+                    "doctorado_educacion",
+                    inst_widget_key="institucion_doctorado",
+                    titulo_widget_key="titulo_doctorado",
+                    campo_amplio_state_key="campo_amplio_doctorado",
+                )
+                posgrado_en_educacion = maestria_en_educacion or doctorado_en_educacion
         with c2:
             tecnico = st.checkbox("Técnico", key="hv_est_tecnico")
+            _render_snies_selector_componente(tecnico, "Técnico", "tecnico")
             tecnologo = st.checkbox("Tecnólogo", key="hv_est_tecnologo")
+            _render_snies_selector_componente(tecnologo, "Tecnólogo", "tecnologo")
             certificados = st.checkbox("Certificados", key="hv_est_certificados")
             duracion_certificados = st.number_input(
                 "Duración certificados (años)",
@@ -456,7 +370,12 @@ def render_verificacion_workspace() -> None:
             "titulo_exterior": titulo_exterior,
             "convalidado": convalidado,
             "profesional_en_educacion": profesional_en_educacion,
+            "maestria_en_educacion": maestria_en_educacion,
+            "doctorado_en_educacion": doctorado_en_educacion,
             "posgrado_en_educacion": posgrado_en_educacion,
+            "campo_amplio_profesional": st.session_state.get("campo_amplio_profesional", ""),
+            "campo_amplio_maestria": st.session_state.get("campo_amplio_maestria", ""),
+            "campo_amplio_doctorado": st.session_state.get("campo_amplio_doctorado", ""),
         }
 
         # UX: no evaluar hasta seleccionar sala

@@ -1,0 +1,6 @@
+# Dependencias solo para desarrollo / CI (pruebas, linters opcionales).
+# Instalar junto con requirements.txt: pip install -r requirements.txt -r requirements-dev.txt
+
+pytest>=7.4,<9
+# Opcional: cobertura (descomenta si la usas en CI)
+# pytest-cov>=4.1
